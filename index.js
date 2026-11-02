@@ -1,6 +1,6 @@
 import express from "express";
 import cors from "cors";
-import { MongoClient } from "mongodb";
+import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
 
 const app = express();
@@ -32,6 +32,7 @@ app.get("/", async (req, res) => {
   res.send({ message: "Server is running" });
 });
 
+//added books
 app.post("/books", async (req, res) => {
   try {
     const data = req.body;
@@ -43,12 +44,25 @@ app.post("/books", async (req, res) => {
   }
 });
 
+//get all books
 app.get("/books", async (req, res) => {
   try {
     const books = await booksCollection.find({}).toArray();
     res.json(books);
   } catch (error) {
     console.error("Error fetching books:", error);
+    res.status(500).json({ error: "Internal Server Error" });
+  }
+});
+
+//get single book
+app.get("/book/:id", async (req, res) => {
+  try {
+    const id = req.params.id;
+    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    res.json(book);
+  } catch (error) {
+    console.error("Error fetching book:", error);
     res.status(500).json({ error: "Internal Server Error" });
   }
 });
