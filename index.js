@@ -50,11 +50,14 @@ const verifyToken = async (req, res, next) => {
       new URL(`${process.env.FRONTEND_URL}/api/auth/jwks`),
     );
 
-    const { payload } = await jwtVerify(token, JWKS);
-
-    console.log("Verified User:", payload);
+    const { payload } = await jwtVerify(token, JWKS, {
+      issuer: process.env.FRONTEND_URL,
+      audience: process.env.FRONTEND_URL,
+    });
 
     req.user = payload;
+
+    console.log("JWT Verified:", payload.email);
 
     next();
   } catch (error) {
@@ -256,27 +259,25 @@ app.get("/borrows", verifyToken, async (req, res) => {
 // ===============================
 app.get("/my-borrows", verifyToken, async (req, res) => {
   try {
-    const userEmail = req.query.email;
+    const userEmail = req.user.email?.trim().toLowerCase();
 
-    if (!userEmail || typeof userEmail !== "string") {
-      return res.status(400).json({
-        message: "User email is required",
+    if (!userEmail) {
+      return res.status(401).json({
+        message: "User email not found!",
       });
     }
 
-    const normalizedEmail = userEmail.trim().toLowerCase();
-
-    const myBorrows = await borrowCollection
+    const result = await borrowCollection
       .find({
-        userEmail: normalizedEmail,
+        userEmail,
         status: "borrowed",
       })
       .sort({ borrowedAt: -1 })
       .toArray();
 
-    res.status(200).json(myBorrows);
+    res.status(200).json(result);
   } catch (error) {
-    console.error("Error fetching my borrows:", error);
+    console.error("My Borrows Route Error:", error);
 
     res.status(500).json({
       message: "Failed to fetch your borrowed books",
@@ -287,9 +288,13 @@ app.get("/my-borrows", verifyToken, async (req, res) => {
 // ===============================
 // RETURN BOOK
 // ===============================
-app.patch("/borrows/:id/return", async (req, res) => {
+app.patch("/borrows/:id/return", verifyToken, async (req, res) => {
+  let borrowMarkedReturned = false;
+  let borrowId;
+
   try {
     const { id } = req.params;
+    borrowId = id;
 
     if (!ObjectId.isValid(id)) {
       return res.status(400).json({
@@ -297,26 +302,40 @@ app.patch("/borrows/:id/return", async (req, res) => {
       });
     }
 
+    const userEmail = req.user.email?.trim().toLowerCase();
+
+    if (!userEmail) {
+      return res.status(401).json({
+        message: "User email not found!",
+      });
+    }
+
+    // Find borrow record
     const borrow = await borrowCollection.findOne({
       _id: new ObjectId(id),
+      userEmail,
+      status: "borrowed",
     });
 
     if (!borrow) {
       return res.status(404).json({
-        message: "Borrow record not found!",
+        message: "Active borrow record not found!",
       });
     }
 
-    if (borrow.status !== "borrowed") {
+    const bookId = borrow.bookId?.toString();
+
+    if (!bookId || !ObjectId.isValid(bookId)) {
       return res.status(400).json({
-        message: "This book is already returned!",
+        message: "Invalid book ID in borrow record!",
       });
     }
 
     // Update borrow status
-    const updateBorrow = await borrowCollection.updateOne(
+    const returnResult = await borrowCollection.updateOne(
       {
         _id: new ObjectId(id),
+        userEmail,
         status: "borrowed",
       },
       {
@@ -327,40 +346,77 @@ app.patch("/borrows/:id/return", async (req, res) => {
       },
     );
 
-    if (updateBorrow.modifiedCount === 0) {
+    if (returnResult.modifiedCount === 0) {
       return res.status(400).json({
-        message: "Book already returned!",
+        message: "Book is already returned!",
       });
     }
 
-    // Find original book
-    const book = await booksCollection.findOne({
-      _id: new ObjectId(borrow.bookId),
-    });
+    borrowMarkedReturned = true;
 
-    // Increase stock if book exists
-    if (book) {
-      await booksCollection.updateOne(
-        { _id: new ObjectId(borrow.bookId) },
-        { $inc: { totalCopies: 1 } },
-      );
+    // Increase available copies
+    const stockResult = await booksCollection.updateOne(
+      {
+        _id: new ObjectId(bookId),
+      },
+      [
+        {
+          $set: {
+            totalCopies: {
+              $add: [
+                {
+                  $convert: {
+                    input: "$totalCopies",
+                    to: "int",
+                    onError: 0,
+                    onNull: 0,
+                  },
+                },
+                1,
+              ],
+            },
+          },
+        },
+      ],
+    );
+
+    if (stockResult.matchedCount === 0) {
+      throw new Error("Could not update book stock!");
     }
 
-    res.status(200).json({
+    borrowMarkedReturned = false;
+
+    return res.status(200).json({
       success: true,
-      message: book
-        ? "Book returned successfully!"
-        : "Borrow record closed. Original book no longer exists.",
+      message: "Book returned successfully!",
     });
   } catch (error) {
     console.error("Return Book Error:", error);
 
-    res.status(500).json({
-      message: "Internal Server Error",
+    // Rollback borrow status if stock update fails
+    if (borrowMarkedReturned && borrowId) {
+      await borrowCollection.updateOne(
+        {
+          _id: new ObjectId(borrowId),
+          status: "returned",
+        },
+        {
+          $set: {
+            status: "borrowed",
+          },
+          $unset: {
+            returnedAt: "",
+          },
+        },
+      );
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: "Failed to return book!",
     });
   }
 });
-
 // ===============================
 // GET MY ADDED BOOKS
 // ===============================
