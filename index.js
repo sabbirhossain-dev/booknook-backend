@@ -2,6 +2,7 @@ import express from "express";
 import cors from "cors";
 import { MongoClient, ObjectId } from "mongodb";
 import "dotenv/config";
+import { createRemoteJWKSet, jwtVerify } from "jose";
 
 const app = express();
 const port = process.env.PORT || 5000;
@@ -29,6 +30,42 @@ const db = connect.db("booknookDB");
 const booksCollection = db.collection("books");
 const borrowCollection = db.collection("borrow");
 
+///////////////// middleware////////////////
+const verifyToken = async (req, res, next) => {
+  try {
+    console.log("Middleware called!");
+
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).send({
+        message: "Unauthorized access",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    // JWT verification
+    const JWKS = createRemoteJWKSet(
+      new URL(`${process.env.FRONTEND_URL}/api/auth/jwks`),
+    );
+
+    const { payload } = await jwtVerify(token, JWKS);
+
+    console.log("Verified User:", payload);
+
+    req.user = payload;
+
+    next();
+  } catch (error) {
+    console.error("Token Error:", error);
+
+    return res.status(401).send({
+      message: "Invalid token",
+    });
+  }
+};
+
 // Root route
 app.get("/", (req, res) => {
   res.send({ message: "Server is running" });
@@ -37,7 +74,7 @@ app.get("/", (req, res) => {
 // ===============================
 // ADD BOOK
 // ===============================
-app.post("/books", async (req, res) => {
+app.post("/books", verifyToken, async (req, res) => {
   try {
     const data = req.body;
 
@@ -72,7 +109,7 @@ app.get("/books", async (req, res) => {
 // ===============================
 // GET SINGLE BOOK
 // ===============================
-app.get("/books/:id", async (req, res) => {
+app.get("/books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
 
@@ -98,7 +135,7 @@ app.get("/books/:id", async (req, res) => {
 // ===============================
 // BORROW BOOK
 // ===============================
-app.post("/borrows", async (req, res) => {
+app.post("/borrows", verifyToken, async (req, res) => {
   try {
     const { bookId, userName, userEmail } = req.body;
 
@@ -197,7 +234,7 @@ app.post("/borrows", async (req, res) => {
 // ===============================
 // GET ALL BORROWS
 // ===============================
-app.get("/borrows", async (req, res) => {
+app.get("/borrows", verifyToken, async (req, res) => {
   try {
     const borrows = await borrowCollection
       .find({})
@@ -217,7 +254,7 @@ app.get("/borrows", async (req, res) => {
 // ===============================
 // GET MY BORROWS
 // ===============================
-app.get("/my-borrows", async (req, res) => {
+app.get("/my-borrows", verifyToken, async (req, res) => {
   try {
     const userEmail = req.query.email;
 
@@ -327,7 +364,7 @@ app.patch("/borrows/:id/return", async (req, res) => {
 // ===============================
 // GET MY ADDED BOOKS
 // ===============================
-app.get("/my-book", async (req, res) => {
+app.get("/my-book", verifyToken, async (req, res) => {
   try {
     const userEmail = req.query.email;
 
@@ -358,7 +395,7 @@ app.get("/my-book", async (req, res) => {
 // ===============================
 // Update my book api
 // ===============================
-app.put("/books/:id", async (req, res) => {
+app.put("/books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const {
@@ -418,7 +455,7 @@ app.put("/books/:id", async (req, res) => {
 // Delete my book
 // ===============================
 
-app.delete("/books/:id", async (req, res) => {
+app.delete("/books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const userEmail = req.query.email;
