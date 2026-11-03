@@ -97,15 +97,64 @@ app.post("/books", verifyToken, async (req, res) => {
 });
 
 // ===============================
+// Get Latest 8 Books (New Arrivals)
+// ===============================
+app.get("/new-arrivals", async (req, res) => {
+  try {
+    const latestBooks = await booksCollection
+      .find()
+      .sort({ _id: -1 })
+      .limit(8)
+      .toArray();
+
+    res.status(200).json(latestBooks);
+  } catch (error) {
+    console.error("New Arrivals Error:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch new arrivals",
+    });
+  }
+});
+
+// ===============================
 // GET ALL BOOKS
 // ===============================
+// app.get("/books", async (req, res) => {
+//   try {
+//     const books = await booksCollection.find({}).toArray();
+//     res.json(books);
+//   } catch (error) {
+//     console.error("Error fetching books:", error);
+//     res.status(500).json({ message: "Internal Server Error" });
+//   }
+// });
+
 app.get("/books", async (req, res) => {
   try {
-    const books = await booksCollection.find({}).toArray();
-    res.json(books);
+    const { category } = req.query;
+
+    const filter = {};
+
+    if (category && typeof category === "string") {
+      filter.category = {
+        $regex: `^${category.trim()}$`,
+        $options: "i",
+      };
+    }
+
+    const books = await booksCollection
+      .find(filter)
+      .sort({ _id: -1 })
+      .toArray();
+
+    res.status(200).json(books);
   } catch (error) {
     console.error("Error fetching books:", error);
-    res.status(500).json({ message: "Internal Server Error" });
+
+    res.status(500).json({
+      message: "Failed to fetch books",
+    });
   }
 });
 
