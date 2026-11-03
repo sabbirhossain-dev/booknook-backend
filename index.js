@@ -356,7 +356,7 @@ app.get("/my-book", async (req, res) => {
 });
 
 // ===============================
-// Update my book
+// Update my book api
 // ===============================
 app.put("/books/:id", async (req, res) => {
   try {
@@ -433,8 +433,6 @@ app.delete("/books/:id", async (req, res) => {
 
     const normalizedEmail = userEmail.trim().toLowerCase();
 
-    // Check whether this book has an active borrow
-    // Check whether this book has an active borrow
     // Check whether this book has an active borrow
     const activeBorrow = await borrowCollection.findOne({
       bookId: id,
