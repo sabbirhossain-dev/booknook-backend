@@ -9,8 +9,8 @@ const port = process.env.PORT || 5000;
 app.use(cors());
 app.use(express.json());
 
-//mongodb connection
-const client = new MongoClient(`${process.env.MONGODB_URI}`);
+// MongoDB connection
+const client = new MongoClient(process.env.MONGODB_URI);
 
 const connectToMongoDB = async () => {
   try {
@@ -19,6 +19,7 @@ const connectToMongoDB = async () => {
     return client;
   } catch (error) {
     console.error("Error connecting to MongoDB:", error);
+    throw error;
   }
 };
 
@@ -26,51 +27,77 @@ const connect = await connectToMongoDB();
 
 const db = connect.db("booknookDB");
 const booksCollection = db.collection("books");
-// Convert totalCopies string to number
-
 const borrowCollection = db.collection("borrow");
 
 // Root route
-app.get("/", async (req, res) => {
+app.get("/", (req, res) => {
   res.send({ message: "Server is running" });
 });
 
-//added books
+// ===============================
+// ADD BOOK
+// ===============================
 app.post("/books", async (req, res) => {
   try {
     const data = req.body;
-    const books = await booksCollection.insertOne(data);
-    res.json(books);
+
+    if (data.userEmail) {
+      data.userEmail = data.userEmail.trim().toLowerCase();
+    }
+
+    data.totalCopies = Number(data.totalCopies);
+
+    const result = await booksCollection.insertOne(data);
+
+    res.status(201).json(result);
   } catch (error) {
-    console.error("Error fetching books:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    console.error("Error adding book:", error);
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
-//get all books
+// ===============================
+// GET ALL BOOKS
+// ===============================
 app.get("/books", async (req, res) => {
   try {
     const books = await booksCollection.find({}).toArray();
     res.json(books);
   } catch (error) {
     console.error("Error fetching books:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
-//get single book
+// ===============================
+// GET SINGLE BOOK
+// ===============================
 app.get("/books/:id", async (req, res) => {
   try {
-    const id = req.params.id;
-    const book = await booksCollection.findOne({ _id: new ObjectId(id) });
+    const { id } = req.params;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book ID!" });
+    }
+
+    const book = await booksCollection.findOne({
+      _id: new ObjectId(id),
+    });
+
+    if (!book) {
+      return res.status(404).json({ message: "Book not found!" });
+    }
+
     res.json(book);
   } catch (error) {
     console.error("Error fetching book:", error);
-    res.status(500).json({ error: "Internal Server Error" });
+    res.status(500).json({ message: "Internal Server Error" });
   }
 });
 
-//borrow book
+// ===============================
+// BORROW BOOK
+// ===============================
 app.post("/borrows", async (req, res) => {
   try {
     const { bookId, userName, userEmail } = req.body;
@@ -88,29 +115,9 @@ app.post("/borrows", async (req, res) => {
       });
     }
 
-    // Check if user already borrowed a book
-    // const existingUserBorrow = await borrowCollection.findOne({
-    //   userEmail: userEmail.trim().toLowerCase(),
-    //   bookId: bookId.toString(),
-    //   status: "borrowed",
-    // });
-
-    // if (existingUserBorrow) {
-    //   return res.status(400).json({
-    //     message: "You have already borrowed this book!",
-    //   });
-    // }
-
     const normalizedEmail = userEmail.trim().toLowerCase();
-    const normalizedBookId = bookId.toString();
 
-    const matchingBorrows = await borrowCollection
-      .find({
-        userEmail: normalizedEmail,
-        bookId: normalizedBookId,
-      })
-      .toArray();
-
+    // Check duplicate active borrow
     const existingBorrow = await borrowCollection.findOne({
       userEmail: normalizedEmail,
       bookId: bookId.toString(),
@@ -122,13 +129,11 @@ app.post("/borrows", async (req, res) => {
         message: "You have already borrowed this book!",
       });
     }
+
     // Find book
     const book = await booksCollection.findOne({
       _id: new ObjectId(bookId),
     });
-    console.log("Book data:", book);
-    console.log("Total copies:", book?.totalCopies);
-    console.log("Type:", typeof book?.totalCopies);
 
     if (!book) {
       return res.status(404).json({
@@ -143,7 +148,7 @@ app.post("/borrows", async (req, res) => {
       });
     }
 
-    // Reduce total copies
+    // Reduce stock
     const updateBook = await booksCollection.updateOne(
       {
         _id: new ObjectId(bookId),
@@ -160,7 +165,7 @@ app.post("/borrows", async (req, res) => {
       });
     }
 
-    //data save
+    // Save borrow data
     const borrowData = {
       bookId: book._id.toString(),
       bookTitle: book.title,
@@ -189,7 +194,9 @@ app.post("/borrows", async (req, res) => {
   }
 });
 
-//get borrows
+// ===============================
+// GET ALL BORROWS
+// ===============================
 app.get("/borrows", async (req, res) => {
   try {
     const borrows = await borrowCollection
@@ -200,110 +207,49 @@ app.get("/borrows", async (req, res) => {
     res.status(200).json(borrows);
   } catch (error) {
     console.error("Error fetching borrows:", error);
+
     res.status(500).json({
       message: "Internal Server Error",
     });
   }
 });
 
-// Return borrow
-// app.patch("/borrows/:id/return", async (req, res) => {
-//   try {
-//     const { id } = req.params;
+// ===============================
+// GET MY BORROWS
+// ===============================
+app.get("/my-borrows", async (req, res) => {
+  try {
+    const userEmail = req.query.email;
 
-//     // Validate borrow ID
-//     if (!ObjectId.isValid(id)) {
-//       return res.status(400).json({
-//         message: "Invalid borrow ID!",
-//       });
-//     }
+    if (!userEmail || typeof userEmail !== "string") {
+      return res.status(400).json({
+        message: "User email is required",
+      });
+    }
 
-//     // Find borrow by ID first
-//     const borrow = await borrowCollection.findOne({
-//       _id: new ObjectId(id),
-//     });
+    const normalizedEmail = userEmail.trim().toLowerCase();
 
-//     console.log("Requested ID:", id);
-//     console.log("Found Borrow:", borrow);
+    const myBorrows = await borrowCollection
+      .find({
+        userEmail: normalizedEmail,
+        status: "borrowed",
+      })
+      .sort({ borrowedAt: -1 })
+      .toArray();
 
-//     if (!borrow) {
-//       return res.status(404).json({
-//         message: "Borrow record not found!",
-//       });
-//     }
+    res.status(200).json(myBorrows);
+  } catch (error) {
+    console.error("Error fetching my borrows:", error);
 
-//     console.log("Current Status:", borrow.status);
+    res.status(500).json({
+      message: "Failed to fetch your borrowed books",
+    });
+  }
+});
 
-//     // Check borrow status
-//     if (borrow.status !== "borrowed") {
-//       return res.status(400).json({
-//         message: "This book is already returned!",
-//       });
-//     }
-
-//     // Update status only if still borrowed
-//     const updateBorrow = await borrowCollection.updateOne(
-//       {
-//         _id: new ObjectId(id),
-//         status: "borrowed",
-//       },
-//       {
-//         $set: {
-//           status: "returned",
-//           returnedAt: new Date(),
-//         },
-//       },
-//     );
-
-//     if (updateBorrow.modifiedCount === 0) {
-//       return res.status(400).json({
-//         message: "Book already returned!",
-//       });
-//     }
-
-//     // Increase book copies
-//     const updateBook = await booksCollection.updateOne(
-//       {
-//         _id: new ObjectId(borrow.bookId),
-//       },
-//       {
-//         $inc: {
-//           totalCopies: 1,
-//         },
-//       },
-//     );
-
-//     if (updateBook.matchedCount === 0) {
-//       // Rollback status
-//       await borrowCollection.updateOne(
-//         {
-//           _id: new ObjectId(id),
-//           status: "returned",
-//         },
-//         {
-//           $set: { status: "borrowed" },
-//           $unset: { returnedAt: "" },
-//         },
-//       );
-
-//       return res.status(404).json({
-//         message: "Book not found!",
-//       });
-//     }
-
-//     res.status(200).json({
-//       success: true,
-//       message: "Book returned successfully!",
-//     });
-//   } catch (error) {
-//     console.error("Return Book Error:", error);
-
-//     res.status(500).json({
-//       message: "Internal Server Error",
-//     });
-//   }
-// });
-
+// ===============================
+// RETURN BOOK
+// ===============================
 app.patch("/borrows/:id/return", async (req, res) => {
   try {
     const { id } = req.params;
@@ -350,12 +296,12 @@ app.patch("/borrows/:id/return", async (req, res) => {
       });
     }
 
-    // Find the original book
+    // Find original book
     const book = await booksCollection.findOne({
       _id: new ObjectId(borrow.bookId),
     });
 
-    // Increase stock only if the original book still exists
+    // Increase stock if book exists
     if (book) {
       await booksCollection.updateOne(
         { _id: new ObjectId(borrow.bookId) },
@@ -378,7 +324,151 @@ app.patch("/borrows/:id/return", async (req, res) => {
   }
 });
 
-// Start the server
-app.listen(port, (req, res) => {
+// ===============================
+// GET MY ADDED BOOKS
+// ===============================
+app.get("/my-book", async (req, res) => {
+  try {
+    const userEmail = req.query.email;
+
+    if (!userEmail || typeof userEmail !== "string") {
+      return res.status(400).json({
+        message: "User email is required",
+      });
+    }
+
+    const normalizedEmail = userEmail.trim().toLowerCase();
+
+    const myBooks = await booksCollection
+      .find({
+        userEmail: normalizedEmail,
+      })
+      .toArray();
+
+    res.status(200).json(myBooks);
+  } catch (error) {
+    console.error("Error fetching my books:", error);
+
+    res.status(500).json({
+      message: "Failed to fetch your books",
+    });
+  }
+});
+
+// ===============================
+// Update my book
+// ===============================
+app.put("/books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      userEmail,
+      title,
+      author,
+      category,
+      description,
+      image,
+      totalCopies,
+    } = req.body;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book ID!" });
+    }
+
+    if (!userEmail) {
+      return res.status(400).json({ message: "User email is required!" });
+    }
+
+    const normalizedEmail = userEmail.trim().toLowerCase();
+
+    const result = await booksCollection.updateOne(
+      {
+        _id: new ObjectId(id),
+        userEmail: normalizedEmail,
+      },
+      {
+        $set: {
+          title,
+          author,
+          category,
+          description,
+          image,
+          totalCopies: Number(totalCopies),
+        },
+      },
+    );
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({
+        message: "Book not found or you are not the owner!",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Book updated successfully!",
+    });
+  } catch (error) {
+    console.error("Update book error:", error);
+    res.status(500).json({ message: "Failed to update book" });
+  }
+});
+
+// ===============================
+// Delete my book
+// ===============================
+
+app.delete("/books/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userEmail = req.query.email;
+
+    if (!ObjectId.isValid(id)) {
+      return res.status(400).json({ message: "Invalid book ID!" });
+    }
+
+    if (!userEmail || typeof userEmail !== "string") {
+      return res.status(400).json({ message: "User email is required!" });
+    }
+
+    const normalizedEmail = userEmail.trim().toLowerCase();
+
+    // Check whether this book has an active borrow
+    const activeBorrow = await borrowCollection.findOne({
+      bookId: id,
+      status: "borrowed",
+    });
+
+    if (activeBorrow) {
+      return res.status(400).json({
+        message: "This book is currently borrowed. It cannot be deleted!",
+      });
+    }
+
+    const result = await booksCollection.deleteOne({
+      _id: new ObjectId(id),
+      userEmail: normalizedEmail,
+    });
+
+    if (result.deletedCount === 0) {
+      return res.status(404).json({
+        message: "Book not found or you are not the owner!",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "Book deleted successfully!",
+    });
+  } catch (error) {
+    console.error("Delete book error:", error);
+    res.status(500).json({ message: "Failed to delete book" });
+  }
+});
+
+// ===============================
+// START SERVER
+// ===============================
+app.listen(port, () => {
   console.log(`Server is running on port ${port}`);
 });
