@@ -338,6 +338,7 @@ app.get("/my-borrows", verifyToken, async (req, res) => {
 // RETURN BOOK
 // ===============================
 app.patch("/borrows/:id/return", verifyToken, async (req, res) => {
+  // app.delete("/borrows/:id", verifyToken, async (req, res) => {
   let borrowMarkedReturned = false;
   let borrowId;
 
@@ -500,7 +501,8 @@ app.get("/my-book", verifyToken, async (req, res) => {
 // ===============================
 // Update my book api
 // ===============================
-app.put("/books/:id", verifyToken, async (req, res) => {
+// app.put("/books/:id", verifyToken, async (req, res) => {
+app.patch("/books/:id", verifyToken, async (req, res) => {
   try {
     const { id } = req.params;
     const {
