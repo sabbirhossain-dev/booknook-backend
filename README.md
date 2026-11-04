@@ -53,13 +53,6 @@ BookNook Backend is a RESTful API built with Express.js and MongoDB to manage bo
 | GET    | `/borrows`     | Get logged-in user's borrows | Private |
 | DELETE | `/borrows/:id` | Return a borrowed book       | Private |
 
-### Additional Endpoints
-
-| Method | Endpoint        | Description                           |
-| ------ | --------------- | ------------------------------------- |
-| GET    | `/new-arrivals` | Get the latest 6 books                |
-| GET    | `/my-book`      | Get books added by the logged-in user |
-
 ---
 
 ## 🔐 Authentication & Security
@@ -79,8 +72,7 @@ BookNook Backend is a RESTful API built with Express.js and MongoDB to manage bo
 
 - Users can borrow books if copies are available.
 - Available copies decrease automatically after borrowing.
-- Each borrowing record includes a borrowing date and return date.
-- The default borrowing period is 7 days.
+- Each borrowing record includes a borrowing date.
 - Users cannot borrow the same book twice simultaneously.
 - Returning a book increases the available copies.
 - Returned borrowing records are retained in the database.
