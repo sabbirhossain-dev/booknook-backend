@@ -165,7 +165,7 @@ app.get("/new-arrivals", async (req, res) => {
     const latestBooks = await booksCollection
       .find()
       .sort({ _id: -1 })
-      .limit(8)
+      .limit(6)
       .toArray();
 
     res.status(200).json(latestBooks);
